@@ -36,14 +36,16 @@ use LWP::UserAgent;
 use HTTP::Request::Common;
 use POSIX 'strftime';
 use URI::Escape;
+use File::Spec;
 
-my( $VERSION ) = "1.03";
+my( $VERSION ) = "1.04";
 my( $req, $resp ); # HTTP Request/Response
 
 my( $agent ) = new LWP::UserAgent;
 $agent->agent( "No-ip.com Dynamic DNS Updater; https://github.com/cgarvey/no-ip-ddns-update; Ver " . $VERSION );
 
-my( $pathConf ) = "./no-ip-ddns-update.conf";
+my( $path_vol, $path_dir, $path_script ) = File::Spec->splitpath(__FILE__);
+my( $path_conf ) = $path_dir . "no-ip-ddns-update.conf";
 		
 our( $username, $password, $hostname );
 our( $v ) = 2; # standard verbosity to print all response status, and errors
@@ -51,10 +53,10 @@ our( $v ) = 2; # standard verbosity to print all response status, and errors
 # Check for command args
 if( $#ARGV >= 0 ) {
 	if( $ARGV[0] eq "createconfig" ) {
-		if( -r( $pathConf ) ) {
-			&log( 0, 1, "WARNING: Config file already exists ($pathConf).rm \nI refuse to overwrite it! Remove the file if you want to re-create it.\n\n" );
+		if( -r( $path_conf ) ) {
+			&log( 0, 1, "WARNING: Config file already exists ($path_conf).rm \nI refuse to overwrite it! Remove the file if you want to re-create it.\n\n" );
 		}
-	 	open( CONF, ">" . $pathConf ) or &log( 0, 1, "ERROR: Failed to write conf file ($pathConf). Are folder permissions OK?\n\n" );
+	 	open( CONF, ">" . $path_conf ) or &log( 0, 1, "ERROR: Failed to write conf file ($path_conf). Are folder permissions OK?\n\n" );
 		print CONF "# Sample configuration file for no-ip-ddns-update. Created " . strftime( '%y%m%d-%H%M%S', localtime ) . ".\n";
 		print CONF "# Update the parameters below to match your No-IP.com account credentials.\n\n";
 		print CONF "# Lines starting with # are comments, and are ignored.\n\n";
@@ -88,14 +90,14 @@ if( $#ARGV >= 0 ) {
 		print CONF "#VERBOSITY=2\n\n";
 		close( CONF );
 
-		&log( 0, 0, "Configuration file created ($pathConf). Please update it\nto suit your needs.\n\n" );
+		&log( 0, 0, "Configuration file created ($path_conf). Please update it\nto suit your needs.\n\n" );
 		exit( 0 );
 	}
 	else {
 		my( $ip, $dummy_ip );
 
 		# Read config file
-		open( CONF, $pathConf ) or &log( 1, 1, "ERROR: Could not open the configuration file ($pathConf in the\ncurrent directory). Run `no-ip-ddns-update.pl createconfig` to create a sample\nconf file for you to change.\n\n" );
+		open( CONF, $path_conf ) or &log( 1, 1, "ERROR: Could not open the configuration file ($path_conf in the\ncurrent directory). Run `no-ip-ddns-update.pl createconfig` to create a sample\nconf file for you to change.\n\n" );
 		while( my $line = <CONF> ) {
 			$line =~ s/[\r\n]//;
 			if( $line =~ /^USERNAME=(.*)/ ) {
