@@ -37,7 +37,7 @@ use HTTP::Request::Common;
 use POSIX 'strftime';
 use URI::Escape;
 
-my( $VERSION ) = "1.01";
+my( $VERSION ) = "1.02";
 my( $req, $resp ); # HTTP Request/Response
 
 my( $agent ) = new LWP::UserAgent;
@@ -47,14 +47,15 @@ my( $regexIP ) = "^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\$";
 my( $pathConf ) = "./no-ip-ddns-update.conf";
 		
 our( $username, $password, $hostname );
+our( $v ) = 2; # standard verbosity to print all response status, and errors
 
 # Check for command args
 if( $#ARGV >= 0 ) {
 	if( $ARGV[0] eq "createconfig" ) {
 		if( -r( $pathConf ) ) {
-			die "WARNING: Config file already exists ($pathConf).rm \nI refuse to overwrite it! Remove the file if you want to re-create it.\n\n";
+			&log( 0, 1, "WARNING: Config file already exists ($pathConf).rm \nI refuse to overwrite it! Remove the file if you want to re-create it.\n\n" );
 		}
-	 	open( CONF, ">" . $pathConf ) or die "ERROR: Failed to write conf file ($pathConf). Are folder permissions OK?\n\n";
+	 	open( CONF, ">" . $pathConf ) or &log( 0, 1, "ERROR: Failed to write conf file ($pathConf). Are folder permissions OK?\n\n" );
 		print CONF "# Sample configuration file for no-ip-ddns-update. Created " . strftime( '%y%m%d-%H%M%S', localtime ) . ".\n";
 		print CONF "# Update the parameters below to match your No-IP.com account credentials.\n\n";
 		print CONF "# Lines starting with # are comments, and are ignored.\n\n";
@@ -78,51 +79,69 @@ if( $#ARGV >= 0 ) {
 		print CONF "# (for ISPs who provide a long-term IP address lease). Some non-routable IP\n";
 		print CONF "# address is recommended, like 127.0.0.1. Use standard IPv4 dotted notation.\n";
 		print CONF "#FORCE_DUMMY_IP_ADDRESS=127.0.0.1\n\n";
+		print CONF "# VERBOSITY is optional, and controls what is output by the script. This only\n";
+		print CONF "# applies to 'purge' and 'purgerforce' commands. Supported values are:\n";
+		print CONF "#  0 - Output nothing at all\n";
+		print CONF "#  1 - Output only fatal errors; (configuration errors, but not services errors\n";
+		print CONF "#      such as No-IP reporting failure to update IP. Recommended for Cron jobs.\n";
+		print CONF "#  2 - Output all errors, and indication of success/failure in updating IP. This\n";
+		print CONF "#      is the assumed default (if not configured here).\n";
+		print CONF "#VERBOSITY=2\n\n";
 		close( CONF );
 
-		print "Configuration file created ($pathConf). Please update it\nto suit your needs.\n\n";
+		&log( 0, 0, "Configuration file created ($pathConf). Please update it\nto suit your needs.\n\n" );
 		exit( 0 );
 	}
 	else {
 		my( $ip, $dummy_ip );
 
 		# Read config file
-		open( CONF, $pathConf ) or die "ERROR: Could not open the configuration file ($pathConf in the\ncurrent directory). Run `no-ip-ddns-update.pl createconfig` to create a sample\nconf file for you to change.\n\n";
+		open( CONF, $pathConf ) or &log( 1, 1, "ERROR: Could not open the configuration file ($pathConf in the\ncurrent directory). Run `no-ip-ddns-update.pl createconfig` to create a sample\nconf file for you to change.\n\n" );
 		while( my $line = <CONF> ) {
 			$line =~ s/[\r\n]//;
 			if( $line =~ /^USERNAME=(.*)/ ) {
 				$username = $1;
-				if( $username eq "" ) { die "ERROR: 'USERNAME' can not be empty, in the configuration file.\n\n"; }
-				elsif( $username !~ /.*\@.*/ ) { die "ERROR: 'USERNAME' does not appear to be a valid email address.\n\n"; }
+				if( $username eq "" ) { &log( 1, 1, "ERROR: 'USERNAME' can not be empty, in the configuration file.\n\n" ); }
+				elsif( $username !~ /.*\@.*/ ) { &log( 1, 1, "ERROR: 'USERNAME' does not appear to be a valid email address.\n\n" ); }
 			}
 			elsif( $line =~ /^PASSWORD=(.*)/ ) {
 				$password = $1;
-				if( $password eq "" ) { die "ERROR: 'PASSWORD' can not be empty, in the configuration file.\n\n"; }
+				if( $password eq "" ) { &log( 1, 1, "ERROR: 'PASSWORD' can not be empty, in the configuration file.\n\n" ); }
 			}
 			elsif( $line =~ /^HOSTNAME=(.*)/ ) {
 				$hostname = $1;
-				if( $hostname eq "" ) { die "ERROR: 'HOSTNAME' can not be empty, in the configuration file.\n\n"; }
+				if( $hostname eq "" ) { &log( 1, 1, "ERROR: 'HOSTNAME' can not be empty, in the configuration file.\n\n" ); }
 			}
 			elsif( $line =~ /^IP_ADDRESS=(.*)/ ) {
 				$ip = $1;
-				if( $ip eq "" ) { die "ERROR: 'IP_ADDRESS' can not be empty, in the configuration file.\nEither use a valid IP address, or comment out to disable,\nwhich will then use the IP specified on the command line, or guess the IP if not.\n"; }
-				elsif( $ip !~ /$regexIP/ ) { die "ERROR: 'IP_ADDRESS' does not appear to be a valid format (e.g. 192.168.1.1)\n\n"; }
+				if( $ip eq "" ) { &log( 1, 1, "ERROR: 'IP_ADDRESS' can not be empty, in the configuration file.\nEither use a valid IP address, or comment out to disable,\nwhich will then use the IP specified on the command line, or guess the IP if not.\n" ); }
+				elsif( $ip !~ /$regexIP/ ) { &log( 1, 1, "ERROR: 'IP_ADDRESS' does not appear to be a valid format (e.g. 192.168.1.1)\n\n" ); }
 			}
 			elsif( $line =~ /^FORCE_DUMMY_IP_ADDRESS=(.*)/ ) {
 				$dummy_ip = $1;
-				if( $dummy_ip eq "" ) { die "ERROR: 'FORCE_DUMMY_IP_ADDRESS' can not be empty, in the configuration file.\nEither use a valid IP address, or comment out to disable.\n"; }
-				elsif( $dummy_ip !~ /$regexIP/ ) { die "ERROR: 'FORCE_DUMMY_IP_ADDRESS' does not appear to be a valid format (e.g. 192.168.1.1)\n\n"; }
+				if( $dummy_ip eq "" ) { &log( 1, 1, "ERROR: 'FORCE_DUMMY_IP_ADDRESS' can not be empty, in the configuration file.\nEither use a valid IP address, or comment out to disable.\n" ); }
+				elsif( $dummy_ip !~ /$regexIP/ ) { &log( 1, 1, "ERROR: 'FORCE_DUMMY_IP_ADDRESS' does not appear to be a valid format (e.g. 192.168.1.1)\n\n" ); }
 			}
-			else {
-				print "Skip: " .. substr( $1, 0, 10 ) . "\n";
+			elsif( $line =~ /^VERBOSITY=(.*)/ ) {
+				$v = $1;
+				if( $v eq "" ) {
+					$v = 2;
+					&log( 1, 1, "ERROR: 'VERBOSITY' can not be empty, in the configuration file.\nEither use a valid value, or comment out to disable.\n" );
+				}
+
+				$v = ( 0 + $v );
+				if( $v < 0 || $v > 2 ) {
+					$v = 2;
+					&log( 1, 1, "ERROR: Unsupported 'VERBOSITY' config. It needs to be 0, 1, or 2.\n" );
+				}
 			}
 		}
 		close( CONF );
 
 		# Check we have rquired config params
-		if( $username eq "" ) { die "ERROR: 'USERNAME' was not configured in the configuration file.\n"; }
-		if( $password eq "" ) { die "ERROR: 'PASSWORD' was not configured in the configuration file.\n"; }
-		if( $hostname eq "" ) { die "ERROR: 'HOSTNAME' was not configured in the configuration file.\n"; }
+		if( $username eq "" ) { &log( 1, 1, "ERROR: 'USERNAME' was not configured in the configuration file.\n" ); }
+		if( $password eq "" ) { &log( 1, 1, "ERROR: 'PASSWORD' was not configured in the configuration file.\n" ); }
+		if( $hostname eq "" ) { &log( 1, 1, "ERROR: 'HOSTNAME' was not configured in the configuration file.\n" ); }
 
 		# Check for IP on command line (2nd arg).
 		# If present, this overrides any IP in config file.
@@ -130,7 +149,7 @@ if( $#ARGV >= 0 ) {
 			if( $ARGV[1] =~ /$regexIP/ ) {
 				$ip = $ARGV[1];
 			}
-			else { die "ERROR: Invalid format in IP address speciifed in command line args.\nUse xxx.xxx.xxx.xxx notation (e.g. 192.168.1.1)\n\n"; }
+			else { &log( 1, 1, "ERROR: Invalid format in IP address speciifed in command line args.\nUse xxx.xxx.xxx.xxx notation (e.g. 192.168.1.1)\n\n" ); }
 		}
 
 		# If we don't have a valid IP here (config file or cmd line arg), get it from web service.
@@ -142,39 +161,42 @@ if( $#ARGV >= 0 ) {
 				$ip = $resp->content;
 			}
 		}
-		if( $ip eq "" ) { die "ERROR: Failed to get IP address from the internet (and none was provided in\nconfig file or command line args).\n\n"; }
+		if( $ip eq "" ) { &log( 2, 1, "ERROR: Failed to get IP address from the internet (and none was provided in\nconfig file or command line args).\n\n" ); }
 
 		if( $ARGV[0] eq "update" ) {
+			&log( 2, 0, "Update: " );
 			my( $ret ) = &sendUpdate( $ip );
-			print $ret . "\n";
 
-			if( $ret =~ /^OK/ ) { exit( 0 ); }
-			else { exit ( 1 ); }
+			if( $ret =~ /^OK/ ) {
+				&log( 2, 0, $ret . "\n" );
+				exit( 0 );
+			}
+			else { &log( 2, 1, $ret . "\n" ); }
 		}
 		elsif( $ARGV[0] eq "updateforce" ) {
-			if( $dummy_ip eq "" ) { die "ERROR: Using forced update mode, but no valid dummy IP address found in config file.\n\n"; }
-			print "Dummy Update: ";
+			if( $dummy_ip eq "" ) { &log( 1, 1, "ERROR: Using forced update mode, but no valid dummy IP address found in config file.\n\n" ); }
+			&log( 2, 0, "Dummy Update: " );
 			my( $ret ) = &sendUpdate( $dummy_ip );
-			print $ret . "\n";
+			&log( 2, 0, $ret . "\n" );
 			if( $ret =~ /^OK/ ) {
-				print "Waiting...";
+				&log( 2, 0, "Waiting..." );
 				sleep( 10 );
-				print " done.\n";
+				&log( 2, 0, " done.\n" );
 
-				print "Real Update: ";
+				&log( 2, 0, "Real Update: " );
 				$ret = &sendUpdate( $ip );
-				print $ret . "\n";
+				&log( 2, 0, $ret . "\n" );
 
 				if( $ret =~ /^OK/ ) { exit( 0 ); }
-				else { die }
+				else { &log( 2, 1 ); }
 			}
-			else { die }
+			else { &log( 2, 1 ); }
 		}
-		else { die "ERROR: Unsupported argument.\n\n" . &usageInstructions(); }
+		else { &log( 1, 1, "ERROR: Unsupported argument.\n\n" . &usageInstructions() ); }
 	}
 }
 else {
-	print &usageInstructions();
+	print &usageInstructions(); # print in all verbsoities
 }
 
 exit( 0 );
@@ -203,7 +225,6 @@ sub sendUpdate() {
 
 	# Build up HTTP request args
 	my( $url ) = "http://dynupdate.no-ip.com/nic/update?";
-	#my( $url ) = "http://localhost/envtest.cgi?";
 	$url .= "myip=" . uri_escape( $update_ip );
 	$url .= "&hostname=" . uri_escape( $hostname );
 
@@ -224,6 +245,25 @@ sub sendUpdate() {
 	}
 	else {
 		return "FAIL: (" . $resp->code . ") Bad HTTP response from No-IP.com";
+	}
+}
+
+sub log() {
+	# Depending on the verbosity configured, print the specified message, and optionally die
+	# Arg 1: The minimum versbosity required (i.e. if 2, then only verbsoities of 2 or 3 will cause message to be printed)
+	# Arg 2: Whether or not to die. If 1, the script will die (with provided message if verbsoity is appropriate), if 0, the msg will be printed, without dying.
+	# Arg 3: The message, if any, to print
+
+	my( $level ) = $_[0];
+	my( $do_die ) = $_[1];
+	my( $msg ) = $_[2];
+
+	if( $_[0] <= $v && $msg ne "" ) {
+		if( $do_die > 0 ) { die( $msg ); }
+		else { print $msg; }
+	}
+	else {
+		if( $do_die > 0 ) { exit( 2555 ); }
 	}
 }
 
