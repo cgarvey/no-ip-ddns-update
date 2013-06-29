@@ -37,13 +37,12 @@ use HTTP::Request::Common;
 use POSIX 'strftime';
 use URI::Escape;
 
-my( $VERSION ) = "1.02";
+my( $VERSION ) = "1.03";
 my( $req, $resp ); # HTTP Request/Response
 
 my( $agent ) = new LWP::UserAgent;
 $agent->agent( "No-ip.com Dynamic DNS Updater; https://github.com/cgarvey/no-ip-ddns-update; Ver " . $VERSION );
 
-my( $regexIP ) = "^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\$";
 my( $pathConf ) = "./no-ip-ddns-update.conf";
 		
 our( $username, $password, $hostname );
@@ -115,12 +114,12 @@ if( $#ARGV >= 0 ) {
 			elsif( $line =~ /^IP_ADDRESS=(.*)/ ) {
 				$ip = $1;
 				if( $ip eq "" ) { &log( 1, 1, "ERROR: 'IP_ADDRESS' can not be empty, in the configuration file.\nEither use a valid IP address, or comment out to disable,\nwhich will then use the IP specified on the command line, or guess the IP if not.\n" ); }
-				elsif( $ip !~ /$regexIP/ ) { &log( 1, 1, "ERROR: 'IP_ADDRESS' does not appear to be a valid format (e.g. 192.168.1.1)\n\n" ); }
+				elsif( ! &is_valid_ip( $ip ) ) { &log( 1, 1, "ERROR: 'IP_ADDRESS' does not appear to be a valid format (e.g. 192.168.1.1)\n\n" ); }
 			}
 			elsif( $line =~ /^FORCE_DUMMY_IP_ADDRESS=(.*)/ ) {
 				$dummy_ip = $1;
 				if( $dummy_ip eq "" ) { &log( 1, 1, "ERROR: 'FORCE_DUMMY_IP_ADDRESS' can not be empty, in the configuration file.\nEither use a valid IP address, or comment out to disable.\n" ); }
-				elsif( $dummy_ip !~ /$regexIP/ ) { &log( 1, 1, "ERROR: 'FORCE_DUMMY_IP_ADDRESS' does not appear to be a valid format (e.g. 192.168.1.1)\n\n" ); }
+				elsif( ! &is_valid_ip( $dummy_ip ) ) { &log( 1, 1, "ERROR: 'FORCE_DUMMY_IP_ADDRESS' does not appear to be a valid format (e.g. 192.168.1.1)\n\n" ); }
 			}
 			elsif( $line =~ /^VERBOSITY=(.*)/ ) {
 				$v = $1;
@@ -146,7 +145,7 @@ if( $#ARGV >= 0 ) {
 		# Check for IP on command line (2nd arg).
 		# If present, this overrides any IP in config file.
 		if( $#ARGV == 1 ) {
-			if( $ARGV[1] =~ /$regexIP/ ) {
+			if( &is_valid_ip( $ARGV[1] ) ) {
 				$ip = $ARGV[1];
 			}
 			else { &log( 1, 1, "ERROR: Invalid format in IP address speciifed in command line args.\nUse xxx.xxx.xxx.xxx notation (e.g. 192.168.1.1)\n\n" ); }
@@ -157,7 +156,7 @@ if( $#ARGV >= 0 ) {
 			$req = new HTTP::Request( "GET",  "http://ip1.dynupdate.no-ip.com/" );
 			$resp = $agent->request( $req );
 
-			if( $resp->code == 200 && $resp->content =~ /$regexIP/ ) {
+			if( $resp->code == 200 && &is_valid_ip( $resp->content ) ) {
 				$ip = $resp->content;
 			}
 		}
@@ -265,5 +264,22 @@ sub log() {
 	else {
 		if( $do_die > 0 ) { exit( 2555 ); }
 	}
+}
+
+sub is_valid_ip() {
+	my( $test_ip ) = $_[0];
+	
+	return unless defined( $test_ip );
+	return unless $test_ip ne "";
+
+	my( @matches ) = $test_ip =~ /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+	return unless $#matches == 3;
+
+	foreach( @matches ) {
+		return unless ($_ >= 0 && $_ <= 255);
+		#return unless ($_ >= 0 && $_ <= 255 && $_ !~ /^0\d{1,2}$/);
+	}
+
+	return 1;
 }
 
